@@ -76,4 +76,3 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         return pointer
     }
 }
-
