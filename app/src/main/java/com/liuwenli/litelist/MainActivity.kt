@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -54,6 +55,7 @@ private fun LiteListApp(repository: TaskRepository) {
     var selected by remember { mutableIntStateOf(0) }
     var title by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val today = LocalDate.now().toString()
@@ -95,16 +97,28 @@ private fun LiteListApp(repository: TaskRepository) {
                                 else repository.reopen(task.generationId, task.taskId, task.dataVersion)
                             }.onFailure { error = it.message ?: "操作失败" }
                         }
-                    }, onDelete = { task ->
-                        scope.launch {
-                            runCatching { repository.delete(task.generationId, task.taskId, task.dataVersion) }
-                                .onFailure { error = it.message ?: "删除失败" }
-                        }
-                    })
+                    }, onDelete = { pendingDelete = it })
                 }
                 else -> Text("功能开发中")
             }
         }
+    }
+    pendingDelete?.let { task ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除任务？") },
+            text = { Text(task.title) },
+            confirmButton = {
+                Button(onClick = {
+                    pendingDelete = null
+                    scope.launch {
+                        runCatching { repository.delete(task.generationId, task.taskId, task.dataVersion) }
+                            .onFailure { error = it.message ?: "删除失败" }
+                    }
+                }) { Text("删除") }
+            },
+            dismissButton = { Button(onClick = { pendingDelete = null }) { Text("取消") } },
+        )
     }
 }
 
@@ -120,4 +134,3 @@ private fun TaskList(tasks: List<TaskEntity>, onToggle: (TaskEntity) -> Unit, on
         }
     }
 }
-
