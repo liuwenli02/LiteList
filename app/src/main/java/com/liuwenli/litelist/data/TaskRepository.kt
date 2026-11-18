@@ -5,6 +5,7 @@ import com.liuwenli.litelist.domain.TaskRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -18,6 +19,19 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeTasks(): Flow<List<TaskEntity>> = dao.observePointer().flatMapLatest { pointer ->
         if (pointer == null) flowOf(emptyList()) else dao.observeActiveTasks(pointer.generationId)
+    }
+
+    fun observeTheme(): Flow<String> = dao.observePointer().map { it?.themeMode ?: "SYSTEM" }
+
+    suspend fun setTheme(mode: String) {
+        require(mode == "SYSTEM" || mode == "LIGHT" || mode == "DARK") { "无效主题" }
+        database.withTransaction {
+            val pointer = ensurePointer()
+            if (pointer.themeMode != mode) {
+                check(dao.setTheme(pointer.generationId, mode) == 1)
+                check(dao.bumpRevision(pointer.generationId) == 1)
+            }
+        }
     }
 
     suspend fun create(title: String, note: String?, plannedDate: LocalDate, deadline: LocalDateTime?): TaskEntity {

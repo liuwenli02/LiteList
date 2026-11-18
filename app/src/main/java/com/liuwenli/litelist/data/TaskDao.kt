@@ -37,5 +37,8 @@ interface TaskDao {
 
     @Query("UPDATE dataset_pointer SET contentRevision = contentRevision + 1 WHERE singletonId = 1 AND generationId = :generationId")
     suspend fun bumpRevision(generationId: String): Int
+
+    @Query("UPDATE dataset_pointer SET themeMode = :mode WHERE singletonId = 1 AND generationId = :generationId")
+    suspend fun setTheme(generationId: String, mode: String): Int
 }
 

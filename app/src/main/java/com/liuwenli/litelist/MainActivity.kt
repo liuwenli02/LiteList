@@ -15,6 +15,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +32,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.room.Room
@@ -38,6 +41,7 @@ import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.TaskRepository
 import com.liuwenli.litelist.ui.TaskEditorDialog
 import com.liuwenli.litelist.ui.CalendarScreen
+import com.liuwenli.litelist.ui.MyScreen
 import com.liuwenli.litelist.ui.TodayTaskSections
 import java.time.Clock
 import java.time.Duration
@@ -49,17 +53,32 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy {
-        TaskRepository(Room.databaseBuilder(applicationContext, LiteListDatabase::class.java, "litelist.db").build(), Clock.systemDefaultZone())
+        TaskRepository(
+            Room.databaseBuilder(applicationContext, LiteListDatabase::class.java, "litelist.db")
+                .addMigrations(LiteListDatabase.MIGRATION_1_2)
+                .build(),
+            Clock.systemDefaultZone(),
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { LiteListApp(repository) } }
+        setContent {
+            val themeMode by remember(repository) { repository.observeTheme() }.collectAsState(initial = "SYSTEM")
+            val dark = when (themeMode) {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> isSystemInDarkTheme()
+            }
+            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                LiteListApp(repository, themeMode)
+            }
+        }
     }
 }
 
 @Composable
-private fun LiteListApp(repository: TaskRepository) {
+private fun LiteListApp(repository: TaskRepository, themeMode: String) {
     val tabs = listOf("今日", "日历", "我的")
     var selected by remember { mutableIntStateOf(0) }
     var title by remember { mutableStateOf("") }
@@ -139,7 +158,12 @@ private fun LiteListApp(repository: TaskRepository) {
                     onDelete = { pendingDelete = it },
                     onEdit = { pendingEdit = it },
                 )
-                else -> Text("功能开发中")
+                else -> MyScreen(
+                    tasks = tasks,
+                    today = today,
+                    themeMode = themeMode,
+                    onThemeChange = { repository.setTheme(it) },
+                )
             }
         }
     }

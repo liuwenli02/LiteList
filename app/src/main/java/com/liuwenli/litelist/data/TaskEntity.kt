@@ -1,6 +1,7 @@
 package com.liuwenli.litelist.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -17,6 +18,7 @@ data class DatasetPointer(
     val generationId: String,
     val switchVersion: Long = 0,
     val contentRevision: Long = 0,
+    @ColumnInfo(defaultValue = "'SYSTEM'") val themeMode: String = "SYSTEM",
 )
 
 @Entity(
@@ -44,3 +46,4 @@ data class TaskEntity(
     val postponeCount: Int = 0,
     val reminderMode: String = "ENABLED",
 )
+
