@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +44,7 @@ import com.liuwenli.litelist.ui.TaskEditorDialog
 import com.liuwenli.litelist.ui.CalendarScreen
 import com.liuwenli.litelist.ui.MyScreen
 import com.liuwenli.litelist.ui.TodayTaskSections
+import com.liuwenli.litelist.ui.RepeatPlanDialog
 import java.time.Clock
 import java.time.Duration
 import java.time.LocalDate
@@ -86,6 +88,7 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
     var pendingEdit by remember { mutableStateOf<TaskEntity?>(null) }
     var detailedCreateDate by remember { mutableStateOf<LocalDate?>(null) }
+    var showRepeatCreate by remember { mutableStateOf(false) }
     var completedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
@@ -98,6 +101,11 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
         }
     }
     val sections = TodayTaskSections.from(tasks, today, ZoneId.systemDefault())
+
+    LaunchedEffect(repository, today) {
+        runCatching { repository.maintainDailyWindow() }
+            .onFailure { error = it.message ?: "重复任务生成失败" }
+    }
 
     fun toggle(task: TaskEntity) {
         scope.launch {
@@ -134,7 +142,10 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
                             }
                         }) { Text("添加") }
                     }
-                    TextButton(onClick = { detailedCreateDate = today }) { Text("详细创建") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { detailedCreateDate = today }) { Text("详细创建") }
+                        TextButton(onClick = { showRepeatCreate = true }) { Text("每日重复计划") }
+                    }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Text("今日 ${sections.progressDone}/${sections.progressTotal}")
                     TodayTaskList(
@@ -190,6 +201,15 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
             onDismiss = { detailedCreateDate = null },
             onSave = { taskTitle, note, plannedDate, deadline ->
                 repository.create(taskTitle, note, plannedDate, deadline)
+            },
+        )
+    }
+    if (showRepeatCreate) {
+        RepeatPlanDialog(
+            today = today,
+            onDismiss = { showRepeatCreate = false },
+            onSave = { planTitle, note, startDate, endDate ->
+                repository.createDailyTemplate(planTitle, note, startDate, endDate)
             },
         )
     }
