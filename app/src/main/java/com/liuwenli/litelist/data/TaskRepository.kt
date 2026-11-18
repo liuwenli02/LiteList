@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.liuwenli.litelist.domain.TaskRules
 import com.liuwenli.litelist.domain.RepeatRules
 import com.liuwenli.litelist.domain.TemplatePropagationRules
+import com.liuwenli.litelist.domain.RepeatLifecycleRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -108,6 +109,56 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         }
         check(dao.bumpRevision(generationId) == 1)
         eligible.size
+    }
+
+    suspend fun pauseDailyTemplate(generationId: String, templateId: String, expectedVersion: Long): Int = database.withTransaction {
+        val pointer = dao.activePointer() ?: throw StaleTemplateException()
+        if (pointer.generationId != generationId) throw StaleTemplateException()
+        val template = dao.findTemplate(generationId, templateId) ?: throw StaleTemplateException()
+        if (template.isDeleted || template.status != "ACTIVE" || template.dataVersion != expectedVersion) throw StaleTemplateException()
+        val operationDate = LocalDate.now(clock)
+        if (dao.changeTemplateStatus(generationId, templateId, expectedVersion, "ACTIVE", "PAUSED") != 1) throw StaleTemplateException()
+        var cancelled = 0
+        for (instance in dao.activeFutureInstances(generationId, templateId, operationDate.toString())) {
+            val task = dao.findTask(generationId, instance.taskId) ?: error("重复实例缺少任务")
+            if (RepeatLifecycleRules.canPause(
+                    LocalDate.parse(instance.originalDate), operationDate, instance.lifecycleStatus,
+                    task.status, instance.isCustomized, instance.retentionProtection, task.postponeCount,
+                )) {
+                check(dao.cancelInstanceForPause(generationId, instance.instanceId, instance.lifecycleVersion) == 1)
+                cancelled++
+            }
+        }
+        check(dao.bumpRevision(generationId) == 1)
+        cancelled
+    }
+
+    suspend fun resumeDailyTemplate(generationId: String, templateId: String, expectedVersion: Long): Int = database.withTransaction {
+        val pointer = dao.activePointer() ?: throw StaleTemplateException()
+        if (pointer.generationId != generationId) throw StaleTemplateException()
+        val template = dao.findTemplate(generationId, templateId) ?: throw StaleTemplateException()
+        if (template.isDeleted || template.status != "PAUSED" || template.dataVersion != expectedVersion) throw StaleTemplateException()
+        val today = LocalDate.now(clock)
+        val allowedDates = RepeatRules.windowDates(
+            today, template.startDate?.let(LocalDate::parse), template.endDate?.let(LocalDate::parse),
+        ).toSet()
+        if (dao.changeTemplateStatus(generationId, templateId, expectedVersion, "PAUSED", "ACTIVE") != 1) throw StaleTemplateException()
+        var resumed = 0
+        for (instance in dao.pausedWindowInstances(generationId, templateId, today.toString(), today.plusDays(6).toString())) {
+            val task = dao.findTask(generationId, instance.taskId) ?: error("重复实例缺少任务")
+            val originalDate = LocalDate.parse(instance.originalDate)
+            if (originalDate in allowedDates && RepeatLifecycleRules.canResume(
+                    originalDate, today, instance.lifecycleStatus, instance.cancellationReason,
+                    task.status, instance.isCustomized, instance.retentionProtection,
+                )) {
+                check(dao.applyTemplateContentToTask(generationId, instance.taskId, template.title, template.note) == 1)
+                check(dao.resumePausedInstance(generationId, instance.instanceId, instance.lifecycleVersion) == 1)
+                resumed++
+            }
+        }
+        val created = generateMissing(template, today)
+        check(dao.bumpRevision(generationId) == 1)
+        resumed + created
     }
 
     suspend fun maintainDailyWindow(): Int = database.withTransaction {

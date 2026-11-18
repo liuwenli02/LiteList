@@ -181,6 +181,13 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
                     themeMode = themeMode,
                     onThemeChange = { repository.setTheme(it) },
                     onEditTemplate = { pendingTemplateEdit = it },
+                    onChangeTemplateStatus = { template ->
+                        if (template.status == "PAUSED") {
+                            repository.resumeDailyTemplate(template.generationId, template.templateId, template.dataVersion)
+                        } else {
+                            repository.pauseDailyTemplate(template.generationId, template.templateId, template.dataVersion)
+                        }
+                    },
                 )
             }
         }

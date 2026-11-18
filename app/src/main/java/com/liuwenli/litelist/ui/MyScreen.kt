@@ -32,6 +32,7 @@ fun MyScreen(
     themeMode: String,
     onThemeChange: suspend (String) -> Unit,
     onEditTemplate: (RepeatTemplateEntity) -> Unit,
+    onChangeTemplateStatus: suspend (RepeatTemplateEntity) -> Unit,
 ) {
     val stats = TaskStatistics.from(tasks, today)
     val scope = rememberCoroutineScope()
@@ -65,8 +66,16 @@ fun MyScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(template.title)
                     Text("${template.startDate ?: "不限"} ～ ${template.endDate ?: "不限"}", style = MaterialTheme.typography.bodySmall)
+                    Text(if (template.status == "PAUSED") "已暂停" else "进行中", style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick = { onEditTemplate(template) }) { Text("编辑") }
+                TextButton(onClick = {
+                    scope.launch {
+                        runCatching { onChangeTemplateStatus(template) }
+                            .onSuccess { error = null }
+                            .onFailure { error = it.message ?: "操作失败" }
+                    }
+                }) { Text(if (template.status == "PAUSED") "恢复" else "暂停") }
             }
         }
     }
