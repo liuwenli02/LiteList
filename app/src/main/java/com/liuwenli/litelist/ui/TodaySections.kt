@@ -1,9 +1,7 @@
 package com.liuwenli.litelist.ui
 
 import com.liuwenli.litelist.data.TaskEntity
-import com.liuwenli.litelist.domain.TaskRules
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.ZoneId
 
 data class TodaySections(
@@ -19,12 +17,8 @@ data class TodaySections(
 object TodayTaskSections {
     fun from(tasks: List<TaskEntity>, today: LocalDate, zone: ZoneId): TodaySections {
         val active = tasks.filter { it.status == "PENDING" || it.status == "COMPLETED" }
-        val pendingOrder = compareBy<TaskEntity> { it.deadlineLocalDateTime == null }
-            .thenBy { it.deadlineLocalDateTime?.let { local -> TaskRules.resolve(LocalDateTime.parse(local), zone) } }
-            .thenBy { it.createdAt }
-            .thenBy { it.taskId }
-        val completedOrder = compareByDescending<TaskEntity> { it.completedAt }
-            .thenBy { it.taskId }
+        val pendingOrder = TaskOrdering.pending(zone)
+        val completedOrder = TaskOrdering.completed
         val pastOrder = compareByDescending<TaskEntity> { it.plannedDate }
             .then(pendingOrder)
 

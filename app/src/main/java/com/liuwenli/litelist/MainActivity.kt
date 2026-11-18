@@ -37,6 +37,7 @@ import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.TaskRepository
 import com.liuwenli.litelist.ui.TaskEditorDialog
+import com.liuwenli.litelist.ui.CalendarScreen
 import com.liuwenli.litelist.ui.TodayTaskSections
 import java.time.Clock
 import java.time.Duration
@@ -65,7 +66,7 @@ private fun LiteListApp(repository: TaskRepository) {
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
     var pendingEdit by remember { mutableStateOf<TaskEntity?>(null) }
-    var showDetailedCreate by remember { mutableStateOf(false) }
+    var detailedCreateDate by remember { mutableStateOf<LocalDate?>(null) }
     var completedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
@@ -78,6 +79,15 @@ private fun LiteListApp(repository: TaskRepository) {
         }
     }
     val sections = TodayTaskSections.from(tasks, today, ZoneId.systemDefault())
+
+    fun toggle(task: TaskEntity) {
+        scope.launch {
+            runCatching {
+                if (task.status == "PENDING") repository.complete(task.generationId, task.taskId, task.dataVersion)
+                else repository.reopen(task.generationId, task.taskId, task.dataVersion)
+            }.onFailure { error = it.message ?: "操作失败" }
+        }
+    }
 
     Scaffold(bottomBar = {
         NavigationBar {
@@ -105,7 +115,7 @@ private fun LiteListApp(repository: TaskRepository) {
                             }
                         }) { Text("添加") }
                     }
-                    TextButton(onClick = { showDetailedCreate = true }) { Text("详细创建") }
+                    TextButton(onClick = { detailedCreateDate = today }) { Text("详细创建") }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Text("今日 ${sections.progressDone}/${sections.progressTotal}")
                     TodayTaskList(
@@ -115,18 +125,20 @@ private fun LiteListApp(repository: TaskRepository) {
                         historyExpanded = historyExpanded,
                         onCompletedExpandedChange = { completedExpanded = it },
                         onHistoryExpandedChange = { historyExpanded = it },
-                        onToggle = { task ->
-                        scope.launch {
-                            runCatching {
-                                if (task.status == "PENDING") repository.complete(task.generationId, task.taskId, task.dataVersion)
-                                else repository.reopen(task.generationId, task.taskId, task.dataVersion)
-                            }.onFailure { error = it.message ?: "操作失败" }
-                        }
-                        },
+                        onToggle = ::toggle,
                         onDelete = { pendingDelete = it },
                         onEdit = { pendingEdit = it },
                     )
                 }
+                1 -> CalendarScreen(
+                    modifier = Modifier.weight(1f),
+                    tasks = tasks,
+                    today = today,
+                    onCreate = { detailedCreateDate = it },
+                    onToggle = ::toggle,
+                    onDelete = { pendingDelete = it },
+                    onEdit = { pendingEdit = it },
+                )
                 else -> Text("功能开发中")
             }
         }
@@ -148,10 +160,10 @@ private fun LiteListApp(repository: TaskRepository) {
             dismissButton = { Button(onClick = { pendingDelete = null }) { Text("取消") } },
         )
     }
-    if (showDetailedCreate) {
+    detailedCreateDate?.let { createDate ->
         TaskEditorDialog(
-            initialDate = today,
-            onDismiss = { showDetailedCreate = false },
+            initialDate = createDate,
+            onDismiss = { detailedCreateDate = null },
             onSave = { taskTitle, note, plannedDate, deadline ->
                 repository.create(taskTitle, note, plannedDate, deadline)
             },
@@ -214,7 +226,7 @@ private fun TodayTaskList(
 }
 
 @Composable
-private fun TaskRow(task: TaskEntity, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit, onEdit: (TaskEntity) -> Unit) {
+internal fun TaskRow(task: TaskEntity, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit, onEdit: (TaskEntity) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Checkbox(checked = task.status == "COMPLETED", onCheckedChange = { onToggle(task) })
         Text(task.title, modifier = Modifier.weight(1f).padding(top = 12.dp))
