@@ -32,6 +32,10 @@ interface TaskDao {
     @Query("UPDATE task SET status = :status, completedAt = :completedAt, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status = :expectedStatus")
     suspend fun transitionTask(generationId: String, taskId: String, expectedVersion: Long, expectedStatus: String, status: String, completedAt: String?): Int
 
+    @Query("UPDATE task SET title = :title, note = :note, plannedDate = :plannedDate, deadlineLocalDateTime = :deadline, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
+    suspend fun editTask(generationId: String, taskId: String, expectedVersion: Long, title: String, note: String?, plannedDate: String, deadline: String?): Int
+
     @Query("UPDATE dataset_pointer SET contentRevision = contentRevision + 1 WHERE singletonId = 1 AND generationId = :generationId")
     suspend fun bumpRevision(generationId: String): Int
 }
+

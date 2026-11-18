@@ -2,6 +2,8 @@ package com.liuwenli.litelist.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import com.liuwenli.litelist.data.StaleTaskException
+import com.liuwenli.litelist.data.TaskEntity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,18 +33,20 @@ import java.time.LocalDateTime
 import kotlinx.coroutines.launch
 
 @Composable
-fun DetailedTaskDialog(
+fun TaskEditorDialog(
     initialDate: LocalDate,
+    existingTask: TaskEntity? = null,
     onDismiss: () -> Unit,
     onSave: suspend (String, String?, LocalDate, LocalDateTime?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var title by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var plannedDate by remember { mutableStateOf(initialDate) }
-    var deadline by remember { mutableStateOf<LocalDateTime?>(null) }
+    var title by remember(existingTask?.taskId) { mutableStateOf(existingTask?.title.orEmpty()) }
+    var note by remember(existingTask?.taskId) { mutableStateOf(existingTask?.note.orEmpty()) }
+    var plannedDate by remember(existingTask?.taskId) { mutableStateOf(existingTask?.plannedDate?.let(LocalDate::parse) ?: initialDate) }
+    var deadline by remember(existingTask?.taskId) { mutableStateOf(existingTask?.deadlineLocalDateTime?.let(LocalDateTime::parse)) }
     var error by remember { mutableStateOf<String?>(null) }
+    var stale by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = { if (!saving) onDismiss() }) {
@@ -51,7 +55,7 @@ fun DetailedTaskDialog(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("创建任务", style = MaterialTheme.typography.headlineSmall)
+                Text(if (existingTask == null) "创建任务" else "编辑任务", style = MaterialTheme.typography.headlineSmall)
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it; error = null },
@@ -84,6 +88,7 @@ fun DetailedTaskDialog(
                     if (deadline != null) TextButton(onClick = { deadline = null }) { Text("清除") }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (stale) TextButton(onClick = onDismiss) { Text("关闭并重新加载") }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
                     Button(onClick = {
@@ -91,7 +96,7 @@ fun DetailedTaskDialog(
                             saving = true
                             runCatching { onSave(title, note, plannedDate, deadline) }
                                 .onSuccess { onDismiss() }
-                                .onFailure { error = it.message ?: "保存失败" }
+                                .onFailure { error = it.message ?: "保存失败"; stale = it is StaleTaskException }
                             saving = false
                         }
                     }, enabled = !saving) { Text(if (saving) "保存中" else "保存") }

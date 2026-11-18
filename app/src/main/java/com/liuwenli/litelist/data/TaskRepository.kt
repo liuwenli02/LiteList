@@ -44,6 +44,28 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
     suspend fun complete(generationId: String, taskId: String, expectedVersion: Long) =
         transition(generationId, taskId, expectedVersion, "PENDING", "COMPLETED", clock.instant().toString())
 
+    suspend fun edit(
+        generationId: String,
+        taskId: String,
+        expectedVersion: Long,
+        title: String,
+        note: String?,
+        plannedDate: LocalDate,
+        deadline: LocalDateTime?,
+    ) {
+        database.withTransaction {
+            val pointer = dao.activePointer() ?: throw StaleTaskException()
+            if (pointer.generationId != generationId) throw StaleTaskException()
+            val task = dao.findTask(generationId, taskId) ?: throw StaleTaskException()
+            if (task.status == "DELETED" || task.dataVersion != expectedVersion) throw StaleTaskException()
+            val cleanTitle = TaskRules.validateTask(title, note, plannedDate, deadline)
+            if (dao.editTask(generationId, taskId, expectedVersion, cleanTitle, note, plannedDate.toString(), deadline?.toString()) != 1) {
+                throw StaleTaskException()
+            }
+            check(dao.bumpRevision(generationId) == 1)
+        }
+    }
+
     suspend fun reopen(generationId: String, taskId: String, expectedVersion: Long) =
         transition(generationId, taskId, expectedVersion, "COMPLETED", "PENDING", null)
 
@@ -76,3 +98,4 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         return pointer
     }
 }
+

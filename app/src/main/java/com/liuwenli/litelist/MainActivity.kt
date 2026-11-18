@@ -36,7 +36,7 @@ import androidx.room.Room
 import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.TaskRepository
-import com.liuwenli.litelist.ui.DetailedTaskDialog
+import com.liuwenli.litelist.ui.TaskEditorDialog
 import com.liuwenli.litelist.ui.TodayTaskSections
 import java.time.Clock
 import java.time.Duration
@@ -64,6 +64,7 @@ private fun LiteListApp(repository: TaskRepository) {
     var title by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
+    var pendingEdit by remember { mutableStateOf<TaskEntity?>(null) }
     var showDetailedCreate by remember { mutableStateOf(false) }
     var completedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
@@ -123,6 +124,7 @@ private fun LiteListApp(repository: TaskRepository) {
                         }
                         },
                         onDelete = { pendingDelete = it },
+                        onEdit = { pendingEdit = it },
                     )
                 }
                 else -> Text("功能开发中")
@@ -147,11 +149,21 @@ private fun LiteListApp(repository: TaskRepository) {
         )
     }
     if (showDetailedCreate) {
-        DetailedTaskDialog(
+        TaskEditorDialog(
             initialDate = today,
             onDismiss = { showDetailedCreate = false },
             onSave = { taskTitle, note, plannedDate, deadline ->
                 repository.create(taskTitle, note, plannedDate, deadline)
+            },
+        )
+    }
+    pendingEdit?.let { task ->
+        TaskEditorDialog(
+            initialDate = today,
+            existingTask = task,
+            onDismiss = { pendingEdit = null },
+            onSave = { taskTitle, note, plannedDate, deadline ->
+                repository.edit(task.generationId, task.taskId, task.dataVersion, taskTitle, note, plannedDate, deadline)
             },
         )
     }
@@ -167,11 +179,12 @@ private fun TodayTaskList(
     onHistoryExpandedChange: (Boolean) -> Unit,
     onToggle: (TaskEntity) -> Unit,
     onDelete: (TaskEntity) -> Unit,
+    onEdit: (TaskEntity) -> Unit,
 ) {
     LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         item { Text("今日待完成 (${sections.pending.size})", style = MaterialTheme.typography.titleMedium) }
         if (sections.pending.isEmpty()) item { Text("今天暂无待完成任务") }
-        items(sections.pending, key = { "pending:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete) }
+        items(sections.pending, key = { "pending:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete, onEdit) }
 
         item {
             TextButton(onClick = { onCompletedExpandedChange(!completedExpanded) }) {
@@ -180,7 +193,7 @@ private fun TodayTaskList(
         }
         if (completedExpanded) {
             if (sections.completed.isEmpty()) item { Text("今天还没有完成任务") }
-            items(sections.completed, key = { "completed:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete) }
+            items(sections.completed, key = { "completed:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete, onEdit) }
         }
 
         item {
@@ -193,7 +206,7 @@ private fun TodayTaskList(
             items(sections.pastPending, key = { "history:${it.taskId}" }) { task ->
                 Column {
                     Text(task.plannedDate, style = MaterialTheme.typography.labelMedium)
-                    TaskRow(task, onToggle, onDelete)
+                    TaskRow(task, onToggle, onDelete, onEdit)
                 }
             }
         }
@@ -201,11 +214,12 @@ private fun TodayTaskList(
 }
 
 @Composable
-private fun TaskRow(task: TaskEntity, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit) {
+private fun TaskRow(task: TaskEntity, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit, onEdit: (TaskEntity) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Checkbox(checked = task.status == "COMPLETED", onCheckedChange = { onToggle(task) })
         Text(task.title, modifier = Modifier.weight(1f).padding(top = 12.dp))
-        Button(onClick = { onDelete(task) }) { Text("删除") }
+        TextButton(onClick = { onEdit(task) }) { Text("编辑") }
+        TextButton(onClick = { onDelete(task) }) { Text("删除") }
     }
 }
 
