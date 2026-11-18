@@ -41,5 +41,21 @@ class RepeatLifecycleRulesTest {
         assertFalse(canResume(customized = true))
         assertFalse(canResume(protected = true))
     }
+
+    @Test
+    fun futureCompletedInstanceGetsProtectionWithoutCustomizationRequirement() {
+        assertTrue(RepeatLifecycleRules.needsPrecompletedProtection(today.plusDays(1), today, "ACTIVE", "COMPLETED", false))
+        assertFalse(RepeatLifecycleRules.needsPrecompletedProtection(today, today, "ACTIVE", "COMPLETED", false))
+        assertFalse(RepeatLifecycleRules.needsPrecompletedProtection(today.plusDays(1), today, "ACTIVE", "PENDING", false))
+        assertFalse(RepeatLifecycleRules.needsPrecompletedProtection(today.plusDays(1), today, "USER_DELETED", "DELETED", false))
+        assertFalse(RepeatLifecycleRules.needsPrecompletedProtection(today.plusDays(1), today, "ACTIVE", "COMPLETED", true))
+    }
+
+    @Test
+    fun allPauseCancellationReasonsNeedTerminalConversionRegardlessOfDate() {
+        assertTrue(RepeatLifecycleRules.needsTerminalReasonConversion("SYSTEM_CANCELLED", "PAUSE"))
+        assertFalse(RepeatLifecycleRules.needsTerminalReasonConversion("SYSTEM_CANCELLED", "STOP"))
+        assertFalse(RepeatLifecycleRules.needsTerminalReasonConversion("USER_DELETED", null))
+    }
 }
 

@@ -25,5 +25,17 @@ object RepeatLifecycleRules {
     ): Boolean = originalDate.isAfter(today) && !originalDate.isAfter(today.plusDays(6)) &&
         lifecycleStatus == "SYSTEM_CANCELLED" && cancellationReason == "PAUSE" &&
         taskStatus == "PENDING" && !isCustomized && !retentionProtection
+
+    fun needsPrecompletedProtection(
+        originalDate: LocalDate,
+        operationDate: LocalDate,
+        lifecycleStatus: String,
+        taskStatus: String,
+        alreadyProtected: Boolean,
+    ): Boolean = originalDate.isAfter(operationDate) && lifecycleStatus == "ACTIVE" &&
+        taskStatus == "COMPLETED" && !alreadyProtected
+
+    fun needsTerminalReasonConversion(lifecycleStatus: String, cancellationReason: String?): Boolean =
+        lifecycleStatus == "SYSTEM_CANCELLED" && cancellationReason == "PAUSE"
 }
 

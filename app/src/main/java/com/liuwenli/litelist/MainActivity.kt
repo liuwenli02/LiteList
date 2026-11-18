@@ -188,6 +188,9 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
                             repository.pauseDailyTemplate(template.generationId, template.templateId, template.dataVersion)
                         }
                     },
+                    onTerminalTemplate = { template, deletePlan ->
+                        repository.endDailyTemplate(template.generationId, template.templateId, template.dataVersion, deletePlan)
+                    },
                 )
             }
         }

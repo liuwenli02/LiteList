@@ -161,6 +161,41 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         resumed + created
     }
 
+    suspend fun endDailyTemplate(generationId: String, templateId: String, expectedVersion: Long, deletePlan: Boolean): Int = database.withTransaction {
+        val pointer = dao.activePointer() ?: throw StaleTemplateException()
+        if (pointer.generationId != generationId) throw StaleTemplateException()
+        val template = dao.findTemplate(generationId, templateId) ?: throw StaleTemplateException()
+        if (template.isDeleted || template.status == "ENDED" || template.dataVersion != expectedVersion) throw StaleTemplateException()
+        val operationDate = LocalDate.now(clock)
+        val reason = if (deletePlan) "PLAN_DELETE" else "STOP"
+        if (dao.endTemplate(generationId, templateId, expectedVersion, deletePlan) != 1) throw StaleTemplateException()
+        var affected = 0
+        for (instance in dao.activeFutureInstances(generationId, templateId, operationDate.toString())) {
+            val task = dao.findTask(generationId, instance.taskId) ?: error("重复实例缺少任务")
+            val originalDate = LocalDate.parse(instance.originalDate)
+            if (RepeatLifecycleRules.needsPrecompletedProtection(
+                    originalDate, operationDate, instance.lifecycleStatus, task.status, instance.retentionProtection,
+                )) {
+                check(dao.protectPrecompletedInstance(generationId, instance.instanceId, instance.lifecycleVersion) == 1)
+                affected++
+            } else if (RepeatLifecycleRules.canPause(
+                    originalDate, operationDate, instance.lifecycleStatus, task.status,
+                    instance.isCustomized, instance.retentionProtection, task.postponeCount,
+                )) {
+                check(dao.cancelInstanceForTerminal(generationId, instance.instanceId, instance.lifecycleVersion, reason) == 1)
+                affected++
+            }
+        }
+        for (instance in dao.allPauseCancelledInstances(generationId, templateId)) {
+            if (RepeatLifecycleRules.needsTerminalReasonConversion(instance.lifecycleStatus, instance.cancellationReason)) {
+                check(dao.convertPauseToTerminalReason(generationId, instance.instanceId, instance.lifecycleVersion, reason) == 1)
+                affected++
+            }
+        }
+        check(dao.bumpRevision(generationId) == 1)
+        affected
+    }
+
     suspend fun maintainDailyWindow(): Int = database.withTransaction {
         val pointer = dao.activePointer() ?: return@withTransaction 0
         val today = LocalDate.now(clock)

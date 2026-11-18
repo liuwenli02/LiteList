@@ -44,6 +44,9 @@ interface TaskDao {
     @Query("UPDATE repeat_template SET status = :newStatus, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND templateId = :templateId AND dataVersion = :expectedVersion AND status = :expectedStatus AND isDeleted = 0")
     suspend fun changeTemplateStatus(generationId: String, templateId: String, expectedVersion: Long, expectedStatus: String, newStatus: String): Int
 
+    @Query("UPDATE repeat_template SET status = 'ENDED', isDeleted = :deleted, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND templateId = :templateId AND dataVersion = :expectedVersion AND status IN ('ACTIVE', 'PAUSED') AND isDeleted = 0")
+    suspend fun endTemplate(generationId: String, templateId: String, expectedVersion: Long, deleted: Boolean): Int
+
     @Query("SELECT * FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND originalDate > :operationDate AND lifecycleStatus = 'ACTIVE'")
     suspend fun activeFutureInstances(generationId: String, templateId: String, operationDate: String): List<RepeatInstanceEntity>
 
@@ -55,6 +58,18 @@ interface TaskDao {
 
     @Query("UPDATE repeat_instance SET lifecycleStatus = 'ACTIVE', cancellationReason = NULL, lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND instanceId = :instanceId AND lifecycleVersion = :expectedVersion AND lifecycleStatus = 'SYSTEM_CANCELLED' AND cancellationReason = 'PAUSE'")
     suspend fun resumePausedInstance(generationId: String, instanceId: String, expectedVersion: Long): Int
+
+    @Query("UPDATE repeat_instance SET retentionProtection = 1, protectionReason = 'PRECOMPLETED_AT_PLAN_CHANGE', lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND instanceId = :instanceId AND lifecycleVersion = :expectedVersion AND lifecycleStatus = 'ACTIVE' AND retentionProtection = 0")
+    suspend fun protectPrecompletedInstance(generationId: String, instanceId: String, expectedVersion: Long): Int
+
+    @Query("UPDATE repeat_instance SET lifecycleStatus = 'SYSTEM_CANCELLED', cancellationReason = :reason, lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND instanceId = :instanceId AND lifecycleVersion = :expectedVersion AND lifecycleStatus = 'ACTIVE'")
+    suspend fun cancelInstanceForTerminal(generationId: String, instanceId: String, expectedVersion: Long, reason: String): Int
+
+    @Query("SELECT * FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND lifecycleStatus = 'SYSTEM_CANCELLED' AND cancellationReason = 'PAUSE'")
+    suspend fun allPauseCancelledInstances(generationId: String, templateId: String): List<RepeatInstanceEntity>
+
+    @Query("UPDATE repeat_instance SET cancellationReason = :reason, lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND instanceId = :instanceId AND lifecycleVersion = :expectedVersion AND lifecycleStatus = 'SYSTEM_CANCELLED' AND cancellationReason = 'PAUSE'")
+    suspend fun convertPauseToTerminalReason(generationId: String, instanceId: String, expectedVersion: Long, reason: String): Int
 
     @Query("SELECT * FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND originalDate > :operationDate")
     suspend fun futureTemplateInstances(generationId: String, templateId: String, operationDate: String): List<RepeatInstanceEntity>
