@@ -2,6 +2,7 @@ package com.liuwenli.litelist.data
 
 import androidx.room.withTransaction
 import com.liuwenli.litelist.domain.TaskRules
+import com.liuwenli.litelist.domain.RepeatRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -55,6 +56,72 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         }
     }
 
+    suspend fun createDailyTemplate(title: String, note: String?, startDate: LocalDate?, endDate: LocalDate?): RepeatTemplateEntity {
+        val cleanTitle = TaskRules.normalizedTitle(title)
+        TaskRules.validateNote(note)
+        RepeatRules.validateRange(startDate, endDate)
+        return database.withTransaction {
+            val pointer = ensurePointer()
+            val template = RepeatTemplateEntity(
+                generationId = pointer.generationId,
+                templateId = UUID.randomUUID().toString(),
+                title = cleanTitle,
+                note = note,
+                startDate = startDate?.toString(),
+                endDate = endDate?.toString(),
+                createdAt = clock.instant().toString(),
+            )
+            dao.insertTemplate(template)
+            generateMissing(template, LocalDate.now(clock))
+            check(dao.bumpRevision(pointer.generationId) == 1)
+            template
+        }
+    }
+
+    suspend fun maintainDailyWindow(): Int = database.withTransaction {
+        val pointer = dao.activePointer() ?: return@withTransaction 0
+        val today = LocalDate.now(clock)
+        val count = dao.activeTemplates(pointer.generationId).sumOf { generateMissing(it, today) }
+        if (count > 0) check(dao.bumpRevision(pointer.generationId) == 1)
+        count
+    }
+
+    private suspend fun generateMissing(template: RepeatTemplateEntity, today: LocalDate): Int {
+        var created = 0
+        val occupied = dao.occupiedOriginalDates(
+            template.generationId, template.templateId, today.toString(), today.plusDays(6).toString(),
+        ).map(LocalDate::parse).toSet()
+        val dates = RepeatRules.missingDates(
+            today,
+            template.startDate?.let(LocalDate::parse),
+            template.endDate?.let(LocalDate::parse),
+            occupied,
+        )
+        for (date in dates) {
+            val id = UUID.randomUUID().toString()
+            dao.insertTask(TaskEntity(
+                generationId = template.generationId,
+                taskId = id,
+                title = template.title,
+                note = template.note,
+                plannedDate = date.toString(),
+                deadlineLocalDateTime = null,
+                status = "PENDING",
+                completedAt = null,
+                createdAt = clock.instant().toString(),
+            ))
+            dao.insertInstance(RepeatInstanceEntity(
+                generationId = template.generationId,
+                instanceId = id,
+                taskId = id,
+                templateId = template.templateId,
+                originalDate = date.toString(),
+            ))
+            created++
+        }
+        return created
+    }
+
     suspend fun complete(generationId: String, taskId: String, expectedVersion: Long) =
         transition(generationId, taskId, expectedVersion, "PENDING", "COMPLETED", clock.instant().toString())
 
@@ -72,10 +139,13 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             if (pointer.generationId != generationId) throw StaleTaskException()
             val task = dao.findTask(generationId, taskId) ?: throw StaleTaskException()
             if (task.status == "DELETED" || task.dataVersion != expectedVersion) throw StaleTaskException()
+            val instance = dao.findInstanceForTask(generationId, taskId)
+            if (instance != null && instance.lifecycleStatus != "ACTIVE") throw StaleTaskException()
             val cleanTitle = TaskRules.validateTask(title, note, plannedDate, deadline)
             if (dao.editTask(generationId, taskId, expectedVersion, cleanTitle, note, plannedDate.toString(), deadline?.toString()) != 1) {
                 throw StaleTaskException()
             }
+            if (instance != null && dao.customizeInstance(generationId, taskId, instance.lifecycleVersion) != 1) throw StaleTaskException()
             check(dao.bumpRevision(generationId) == 1)
         }
     }
@@ -89,6 +159,11 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             if (pointer.generationId != generationId) throw StaleTaskException()
             val task = dao.findTask(generationId, taskId) ?: throw StaleTaskException()
             if (task.status == "DELETED" || task.dataVersion != expectedVersion) throw StaleTaskException()
+            val instance = dao.findInstanceForTask(generationId, taskId)
+            if (instance != null) {
+                if (instance.lifecycleStatus != "ACTIVE") throw StaleTaskException()
+                if (dao.userDeleteInstance(generationId, taskId, instance.lifecycleVersion) != 1) throw StaleTaskException()
+            }
             if (dao.transitionTask(generationId, taskId, expectedVersion, task.status, "DELETED", null) != 1) throw StaleTaskException()
             check(dao.bumpRevision(generationId) == 1)
         }
@@ -98,6 +173,8 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         database.withTransaction {
             val pointer = dao.activePointer() ?: throw StaleTaskException()
             if (pointer.generationId != generationId) throw StaleTaskException()
+            val instance = dao.findInstanceForTask(generationId, taskId)
+            if (instance != null && instance.lifecycleStatus != "ACTIVE") throw StaleTaskException()
             if (dao.transitionTask(generationId, taskId, expectedVersion, from, to, completedAt) != 1) throw StaleTaskException()
             check(dao.bumpRevision(generationId) == 1)
         }

@@ -23,10 +23,25 @@ interface TaskDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertTask(task: TaskEntity)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertTemplate(template: RepeatTemplateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertInstance(instance: RepeatInstanceEntity)
+
+    @Query("SELECT * FROM repeat_template WHERE generationId = :generationId AND status = 'ACTIVE' AND isDeleted = 0")
+    suspend fun activeTemplates(generationId: String): List<RepeatTemplateEntity>
+
+    @Query("SELECT originalDate FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND originalDate BETWEEN :firstDate AND :lastDate")
+    suspend fun occupiedOriginalDates(generationId: String, templateId: String, firstDate: String, lastDate: String): List<String>
+
+    @Query("SELECT * FROM repeat_instance WHERE generationId = :generationId AND taskId = :taskId")
+    suspend fun findInstanceForTask(generationId: String, taskId: String): RepeatInstanceEntity?
+
     @Query("SELECT * FROM task WHERE generationId = :generationId AND taskId = :taskId")
     suspend fun findTask(generationId: String, taskId: String): TaskEntity?
 
-    @Query("SELECT * FROM task WHERE generationId = :generationId AND status != 'DELETED' ORDER BY plannedDate, createdAt, taskId")
+    @Query("SELECT task.* FROM task LEFT JOIN repeat_instance ON task.generationId = repeat_instance.generationId AND task.taskId = repeat_instance.taskId WHERE task.generationId = :generationId AND task.status != 'DELETED' AND (repeat_instance.instanceId IS NULL OR repeat_instance.lifecycleStatus = 'ACTIVE') ORDER BY task.plannedDate, task.createdAt, task.taskId")
     fun observeActiveTasks(generationId: String): Flow<List<TaskEntity>>
 
     @Query("UPDATE task SET status = :status, completedAt = :completedAt, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status = :expectedStatus")
@@ -34,6 +49,12 @@ interface TaskDao {
 
     @Query("UPDATE task SET title = :title, note = :note, plannedDate = :plannedDate, deadlineLocalDateTime = :deadline, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
     suspend fun editTask(generationId: String, taskId: String, expectedVersion: Long, title: String, note: String?, plannedDate: String, deadline: String?): Int
+
+    @Query("UPDATE repeat_instance SET isCustomized = 1, lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND lifecycleStatus = 'ACTIVE' AND lifecycleVersion = :expectedVersion")
+    suspend fun customizeInstance(generationId: String, taskId: String, expectedVersion: Long): Int
+
+    @Query("UPDATE repeat_instance SET lifecycleStatus = 'USER_DELETED', lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND lifecycleStatus = 'ACTIVE' AND lifecycleVersion = :expectedVersion")
+    suspend fun userDeleteInstance(generationId: String, taskId: String, expectedVersion: Long): Int
 
     @Query("UPDATE dataset_pointer SET contentRevision = contentRevision + 1 WHERE singletonId = 1 AND generationId = :generationId")
     suspend fun bumpRevision(generationId: String): Int
