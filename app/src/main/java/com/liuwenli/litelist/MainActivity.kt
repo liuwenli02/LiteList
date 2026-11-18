@@ -39,12 +39,14 @@ import androidx.compose.ui.unit.dp
 import androidx.room.Room
 import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
+import com.liuwenli.litelist.data.RepeatTemplateEntity
 import com.liuwenli.litelist.data.TaskRepository
 import com.liuwenli.litelist.ui.TaskEditorDialog
 import com.liuwenli.litelist.ui.CalendarScreen
 import com.liuwenli.litelist.ui.MyScreen
 import com.liuwenli.litelist.ui.TodayTaskSections
 import com.liuwenli.litelist.ui.RepeatPlanDialog
+import com.liuwenli.litelist.ui.TemplateEditDialog
 import java.time.Clock
 import java.time.Duration
 import java.time.LocalDate
@@ -87,11 +89,13 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
     var pendingEdit by remember { mutableStateOf<TaskEntity?>(null) }
+    var pendingTemplateEdit by remember { mutableStateOf<RepeatTemplateEntity?>(null) }
     var detailedCreateDate by remember { mutableStateOf<LocalDate?>(null) }
     var showRepeatCreate by remember { mutableStateOf(false) }
     var completedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
+    val templates by remember(repository) { repository.observeTemplates() }.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val today by produceState(initialValue = LocalDate.now()) {
         while (true) {
@@ -170,10 +174,13 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
                     onEdit = { pendingEdit = it },
                 )
                 else -> MyScreen(
+                    modifier = Modifier.weight(1f),
                     tasks = tasks,
+                    templates = templates,
                     today = today,
                     themeMode = themeMode,
                     onThemeChange = { repository.setTheme(it) },
+                    onEditTemplate = { pendingTemplateEdit = it },
                 )
             }
         }
@@ -220,6 +227,15 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
             onDismiss = { pendingEdit = null },
             onSave = { taskTitle, note, plannedDate, deadline ->
                 repository.edit(task.generationId, task.taskId, task.dataVersion, taskTitle, note, plannedDate, deadline)
+            },
+        )
+    }
+    pendingTemplateEdit?.let { template ->
+        TemplateEditDialog(
+            template = template,
+            onDismiss = { pendingTemplateEdit = null },
+            onSave = { title, note ->
+                repository.editDailyTemplate(template.generationId, template.templateId, template.dataVersion, title, note)
             },
         )
     }

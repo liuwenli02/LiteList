@@ -32,6 +32,21 @@ interface TaskDao {
     @Query("SELECT * FROM repeat_template WHERE generationId = :generationId AND status = 'ACTIVE' AND isDeleted = 0")
     suspend fun activeTemplates(generationId: String): List<RepeatTemplateEntity>
 
+    @Query("SELECT * FROM repeat_template WHERE generationId = :generationId AND isDeleted = 0 ORDER BY createdAt, templateId")
+    fun observeTemplates(generationId: String): Flow<List<RepeatTemplateEntity>>
+
+    @Query("SELECT * FROM repeat_template WHERE generationId = :generationId AND templateId = :templateId")
+    suspend fun findTemplate(generationId: String, templateId: String): RepeatTemplateEntity?
+
+    @Query("UPDATE repeat_template SET title = :title, note = :note, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND templateId = :templateId AND dataVersion = :expectedVersion AND status IN ('ACTIVE', 'PAUSED') AND isDeleted = 0")
+    suspend fun editTemplate(generationId: String, templateId: String, expectedVersion: Long, title: String, note: String?): Int
+
+    @Query("SELECT * FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND originalDate > :operationDate")
+    suspend fun futureTemplateInstances(generationId: String, templateId: String, operationDate: String): List<RepeatInstanceEntity>
+
+    @Query("UPDATE task SET title = :title, note = :note, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND status IN ('PENDING', 'COMPLETED')")
+    suspend fun applyTemplateContentToTask(generationId: String, taskId: String, title: String, note: String?): Int
+
     @Query("SELECT originalDate FROM repeat_instance WHERE generationId = :generationId AND templateId = :templateId AND originalDate BETWEEN :firstDate AND :lastDate")
     suspend fun occupiedOriginalDates(generationId: String, templateId: String, firstDate: String, lastDate: String): List<String>
 

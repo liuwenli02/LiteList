@@ -3,6 +3,7 @@ package com.liuwenli.litelist.data
 import androidx.room.withTransaction
 import com.liuwenli.litelist.domain.TaskRules
 import com.liuwenli.litelist.domain.RepeatRules
+import com.liuwenli.litelist.domain.TemplatePropagationRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -13,6 +14,7 @@ import java.time.LocalDateTime
 import java.util.UUID
 
 class StaleTaskException : IllegalStateException("任务已变化，请重新加载")
+class StaleTemplateException : IllegalStateException("计划已变化，请重新加载")
 
 class TaskRepository(private val database: LiteListDatabase, private val clock: Clock) {
     private val dao = database.taskDao()
@@ -23,6 +25,11 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
     }
 
     fun observeTheme(): Flow<String> = dao.observePointer().map { it?.themeMode ?: "SYSTEM" }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeTemplates(): Flow<List<RepeatTemplateEntity>> = dao.observePointer().flatMapLatest { pointer ->
+        if (pointer == null) flowOf(emptyList()) else dao.observeTemplates(pointer.generationId)
+    }
 
     suspend fun setTheme(mode: String) {
         require(mode == "SYSTEM" || mode == "LIGHT" || mode == "DARK") { "无效主题" }
@@ -76,6 +83,31 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             check(dao.bumpRevision(pointer.generationId) == 1)
             template
         }
+    }
+
+    suspend fun editDailyTemplate(
+        generationId: String,
+        templateId: String,
+        expectedVersion: Long,
+        title: String,
+        note: String?,
+    ): Int = database.withTransaction {
+        val pointer = dao.activePointer() ?: throw StaleTemplateException()
+        if (pointer.generationId != generationId) throw StaleTemplateException()
+        val template = dao.findTemplate(generationId, templateId) ?: throw StaleTemplateException()
+        if (template.isDeleted || template.status == "ENDED" || template.dataVersion != expectedVersion) throw StaleTemplateException()
+        val cleanTitle = TaskRules.normalizedTitle(title)
+        TaskRules.validateNote(note)
+        if (template.title == cleanTitle && template.note == note) return@withTransaction 0
+        if (dao.editTemplate(generationId, templateId, expectedVersion, cleanTitle, note) != 1) throw StaleTemplateException()
+        val operationDate = LocalDate.now(clock)
+        val eligible = dao.futureTemplateInstances(generationId, templateId, operationDate.toString())
+            .filter { TemplatePropagationRules.canReceive(LocalDate.parse(it.originalDate), operationDate, it.lifecycleStatus, it.isCustomized) }
+        eligible.forEach { instance ->
+            check(dao.applyTemplateContentToTask(generationId, instance.taskId, cleanTitle, note) == 1)
+        }
+        check(dao.bumpRevision(generationId) == 1)
+        eligible.size
     }
 
     suspend fun maintainDailyWindow(): Int = database.withTransaction {
