@@ -20,11 +20,13 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -34,8 +36,13 @@ import androidx.room.Room
 import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.TaskRepository
+import com.liuwenli.litelist.ui.TodayTaskSections
 import java.time.Clock
+import java.time.Duration
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -56,9 +63,18 @@ private fun LiteListApp(repository: TaskRepository) {
     var title by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
+    var completedExpanded by remember { mutableStateOf(false) }
+    var historyExpanded by remember { mutableStateOf(true) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
-    val today = LocalDate.now().toString()
+    val today by produceState(initialValue = LocalDate.now()) {
+        while (true) {
+            value = LocalDate.now()
+            val nextMidnight = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault())
+            delay(Duration.between(ZonedDateTime.now(), nextMidnight).toMillis().coerceAtLeast(1_000L))
+        }
+    }
+    val sections = TodayTaskSections.from(tasks, today, ZoneId.systemDefault())
 
     Scaffold(bottomBar = {
         NavigationBar {
@@ -87,17 +103,24 @@ private fun LiteListApp(repository: TaskRepository) {
                         }) { Text("添加") }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    val current = tasks.filter { it.plannedDate == today }
-                    Text("今日 ${current.count { it.status == "COMPLETED" }}/${current.size}")
-                    if (current.isEmpty()) Text("今天暂无任务")
-                    TaskList(current, onToggle = { task ->
+                    Text("今日 ${sections.progressDone}/${sections.progressTotal}")
+                    TodayTaskList(
+                        modifier = Modifier.weight(1f),
+                        sections = sections,
+                        completedExpanded = completedExpanded,
+                        historyExpanded = historyExpanded,
+                        onCompletedExpandedChange = { completedExpanded = it },
+                        onHistoryExpandedChange = { historyExpanded = it },
+                        onToggle = { task ->
                         scope.launch {
                             runCatching {
                                 if (task.status == "PENDING") repository.complete(task.generationId, task.taskId, task.dataVersion)
                                 else repository.reopen(task.generationId, task.taskId, task.dataVersion)
                             }.onFailure { error = it.message ?: "操作失败" }
                         }
-                    }, onDelete = { pendingDelete = it })
+                        },
+                        onDelete = { pendingDelete = it },
+                    )
                 }
                 else -> Text("功能开发中")
             }
@@ -123,14 +146,54 @@ private fun LiteListApp(repository: TaskRepository) {
 }
 
 @Composable
-private fun TaskList(tasks: List<TaskEntity>, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit) {
-    LazyColumn {
-        items(tasks, key = { it.taskId }) { task ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Checkbox(checked = task.status == "COMPLETED", onCheckedChange = { onToggle(task) })
-                Text(task.title, modifier = Modifier.weight(1f).padding(top = 12.dp))
-                Button(onClick = { onDelete(task) }) { Text("删除") }
+private fun TodayTaskList(
+    modifier: Modifier,
+    sections: com.liuwenli.litelist.ui.TodaySections,
+    completedExpanded: Boolean,
+    historyExpanded: Boolean,
+    onCompletedExpandedChange: (Boolean) -> Unit,
+    onHistoryExpandedChange: (Boolean) -> Unit,
+    onToggle: (TaskEntity) -> Unit,
+    onDelete: (TaskEntity) -> Unit,
+) {
+    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        item { Text("今日待完成 (${sections.pending.size})", style = MaterialTheme.typography.titleMedium) }
+        if (sections.pending.isEmpty()) item { Text("今天暂无待完成任务") }
+        items(sections.pending, key = { "pending:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete) }
+
+        item {
+            TextButton(onClick = { onCompletedExpandedChange(!completedExpanded) }) {
+                Text("今日已完成 (${sections.completed.size}) ${if (completedExpanded) "收起" else "展开"}")
+            }
+        }
+        if (completedExpanded) {
+            if (sections.completed.isEmpty()) item { Text("今天还没有完成任务") }
+            items(sections.completed, key = { "completed:${it.taskId}" }) { task -> TaskRow(task, onToggle, onDelete) }
+        }
+
+        item {
+            TextButton(onClick = { onHistoryExpandedChange(!historyExpanded) }) {
+                Text("历史未完成 (${sections.pastPending.size}) ${if (historyExpanded) "收起" else "展开"}")
+            }
+        }
+        if (historyExpanded) {
+            if (sections.pastPending.isEmpty()) item { Text("没有历史未完成任务") }
+            items(sections.pastPending, key = { "history:${it.taskId}" }) { task ->
+                Column {
+                    Text(task.plannedDate, style = MaterialTheme.typography.labelMedium)
+                    TaskRow(task, onToggle, onDelete)
+                }
             }
         }
     }
 }
+
+@Composable
+private fun TaskRow(task: TaskEntity, onToggle: (TaskEntity) -> Unit, onDelete: (TaskEntity) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Checkbox(checked = task.status == "COMPLETED", onCheckedChange = { onToggle(task) })
+        Text(task.title, modifier = Modifier.weight(1f).padding(top = 12.dp))
+        Button(onClick = { onDelete(task) }) { Text("删除") }
+    }
+}
+
