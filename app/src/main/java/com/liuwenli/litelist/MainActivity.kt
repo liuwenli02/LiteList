@@ -36,6 +36,7 @@ import androidx.room.Room
 import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.TaskRepository
+import com.liuwenli.litelist.ui.DetailedTaskDialog
 import com.liuwenli.litelist.ui.TodayTaskSections
 import java.time.Clock
 import java.time.Duration
@@ -63,6 +64,7 @@ private fun LiteListApp(repository: TaskRepository) {
     var title by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
+    var showDetailedCreate by remember { mutableStateOf(false) }
     var completedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
     val tasks by remember(repository) { repository.observeTasks() }.collectAsState(initial = emptyList())
@@ -102,6 +104,7 @@ private fun LiteListApp(repository: TaskRepository) {
                             }
                         }) { Text("添加") }
                     }
+                    TextButton(onClick = { showDetailedCreate = true }) { Text("详细创建") }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Text("今日 ${sections.progressDone}/${sections.progressTotal}")
                     TodayTaskList(
@@ -141,6 +144,15 @@ private fun LiteListApp(repository: TaskRepository) {
                 }) { Text("删除") }
             },
             dismissButton = { Button(onClick = { pendingDelete = null }) { Text("取消") } },
+        )
+    }
+    if (showDetailedCreate) {
+        DetailedTaskDialog(
+            initialDate = today,
+            onDismiss = { showDetailedCreate = false },
+            onSave = { taskTitle, note, plannedDate, deadline ->
+                repository.create(taskTitle, note, plannedDate, deadline)
+            },
         )
     }
 }
