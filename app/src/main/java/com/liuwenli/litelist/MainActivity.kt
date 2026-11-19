@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
     private val repository by lazy {
         TaskRepository(
             Room.databaseBuilder(applicationContext, LiteListDatabase::class.java, "litelist.db")
-                .addMigrations(LiteListDatabase.MIGRATION_1_2, LiteListDatabase.MIGRATION_2_3)
+                .addMigrations(LiteListDatabase.MIGRATION_1_2, LiteListDatabase.MIGRATION_2_3, LiteListDatabase.MIGRATION_3_4)
                 .build(),
             Clock.systemDefaultZone(),
         )
@@ -216,8 +216,8 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
         TaskEditorDialog(
             initialDate = createDate,
             onDismiss = { detailedCreateDate = null },
-            onSave = { taskTitle, note, plannedDate, deadline ->
-                repository.create(taskTitle, note, plannedDate, deadline)
+            onSave = { taskTitle, note, plannedDate, deadline, normalReminders, deadlineReminderEnabled ->
+                repository.create(taskTitle, note, plannedDate, deadline, normalReminders, deadlineReminderEnabled)
             },
         )
     }
@@ -235,8 +235,10 @@ private fun LiteListApp(repository: TaskRepository, themeMode: String) {
             initialDate = today,
             existingTask = task,
             onDismiss = { pendingEdit = null },
-            onSave = { taskTitle, note, plannedDate, deadline ->
-                repository.edit(task.generationId, task.taskId, task.dataVersion, taskTitle, note, plannedDate, deadline)
+            loadReminders = { repository.normalReminders(task.generationId, task.taskId) },
+            onReenable = { repository.reenableReminders(task.generationId, task.taskId, task.dataVersion) },
+            onSave = { taskTitle, note, plannedDate, deadline, normalReminders, deadlineReminderEnabled ->
+                repository.edit(task.generationId, task.taskId, task.dataVersion, taskTitle, note, plannedDate, deadline, normalReminders, deadlineReminderEnabled)
             },
         )
     }

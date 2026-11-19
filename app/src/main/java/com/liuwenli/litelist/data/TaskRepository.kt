@@ -5,6 +5,7 @@ import com.liuwenli.litelist.domain.TaskRules
 import com.liuwenli.litelist.domain.RepeatRules
 import com.liuwenli.litelist.domain.TemplatePropagationRules
 import com.liuwenli.litelist.domain.RepeatLifecycleRules
+import com.liuwenli.litelist.domain.ReminderRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -43,8 +44,12 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         }
     }
 
-    suspend fun create(title: String, note: String?, plannedDate: LocalDate, deadline: LocalDateTime?): TaskEntity {
+    suspend fun create(
+        title: String, note: String?, plannedDate: LocalDate, deadline: LocalDateTime?,
+        normalReminders: List<LocalDateTime> = emptyList(), deadlineReminderEnabled: Boolean = true,
+    ): TaskEntity {
         val cleanTitle = TaskRules.validateTask(title, note, plannedDate, deadline)
+        val normalTimes = ReminderRules.normalizeNormalTimes(normalReminders)
         return database.withTransaction {
             val pointer = ensurePointer()
             val task = TaskEntity(
@@ -57,8 +62,10 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
                 status = "PENDING",
                 completedAt = null,
                 createdAt = clock.instant().toString(),
+                deadlineReminderDisabled = !deadlineReminderEnabled,
             )
             dao.insertTask(task)
+            normalTimes.forEach { insertNormalReminder(task, it) }
             check(dao.bumpRevision(pointer.generationId) == 1)
             task
         }
@@ -251,6 +258,8 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
         note: String?,
         plannedDate: LocalDate,
         deadline: LocalDateTime?,
+        normalReminders: List<LocalDateTime> = emptyList(),
+        deadlineReminderEnabled: Boolean = true,
     ) {
         database.withTransaction {
             val pointer = dao.activePointer() ?: throw StaleTaskException()
@@ -260,9 +269,18 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             val instance = dao.findInstanceForTask(generationId, taskId)
             if (instance != null && instance.lifecycleStatus != "ACTIVE") throw StaleTaskException()
             val cleanTitle = TaskRules.validateTask(title, note, plannedDate, deadline)
-            if (dao.editTask(generationId, taskId, expectedVersion, cleanTitle, note, plannedDate.toString(), deadline?.toString()) != 1) {
+            val normalTimes = ReminderRules.normalizeNormalTimes(normalReminders)
+            if (dao.editTask(generationId, taskId, expectedVersion, cleanTitle, note, plannedDate.toString(), deadline?.toString(), !deadlineReminderEnabled) != 1) {
                 throw StaleTaskException()
             }
+            val configured = dao.allNormalReminders(generationId, taskId)
+            for (reminder in configured) {
+                val selected = LocalDateTime.parse(reminder.localDateTime) in normalTimes
+                if (selected && reminder.logicalStatus == "DISABLED") check(dao.enableNormalReminder(generationId, reminder.reminderId) == 1)
+                if (!selected && reminder.logicalStatus == "ENABLED") check(dao.disableNormalReminder(generationId, reminder.reminderId) == 1)
+            }
+            val knownTimes = configured.map { LocalDateTime.parse(it.localDateTime) }.toSet()
+            normalTimes.filterNot { it in knownTimes }.forEach { insertNormalReminder(task, it) }
             if (instance != null && dao.customizeInstance(generationId, taskId, instance.lifecycleVersion) != 1) throw StaleTaskException()
             check(dao.bumpRevision(generationId) == 1)
         }
@@ -270,6 +288,29 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
 
     suspend fun reopen(generationId: String, taskId: String, expectedVersion: Long) =
         transition(generationId, taskId, expectedVersion, "COMPLETED", "PENDING", null)
+
+    suspend fun normalReminders(generationId: String, taskId: String): List<LocalDateTime> =
+        dao.normalReminders(generationId, taskId).map { LocalDateTime.parse(it.localDateTime) }
+
+    suspend fun reenableReminders(generationId: String, taskId: String, expectedVersion: Long) {
+        database.withTransaction {
+            val pointer = dao.activePointer() ?: throw StaleTaskException()
+            if (pointer.generationId != generationId) throw StaleTaskException()
+            val task = dao.findTask(generationId, taskId) ?: throw StaleTaskException()
+            if (task.status == "DELETED" || task.dataVersion != expectedVersion || task.reminderMode != "MUTED") throw StaleTaskException()
+            if (dao.setReminderMode(generationId, taskId, expectedVersion, "ENABLED") != 1) throw StaleTaskException()
+            check(dao.bumpRevision(generationId) == 1)
+        }
+    }
+
+    private suspend fun insertNormalReminder(task: TaskEntity, time: LocalDateTime) {
+        dao.insertNormalReminder(NormalReminderEntity(
+            generationId = task.generationId,
+            reminderId = UUID.randomUUID().toString(),
+            taskId = task.taskId,
+            localDateTime = time.toString(),
+        ))
+    }
 
     suspend fun delete(generationId: String, taskId: String, expectedVersion: Long) {
         database.withTransaction {

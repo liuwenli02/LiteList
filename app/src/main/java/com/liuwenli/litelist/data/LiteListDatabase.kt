@@ -6,8 +6,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DatasetGeneration::class, DatasetPointer::class, TaskEntity::class, RepeatTemplateEntity::class, RepeatInstanceEntity::class],
-    version = 3,
+    entities = [DatasetGeneration::class, DatasetPointer::class, TaskEntity::class, RepeatTemplateEntity::class, RepeatInstanceEntity::class, NormalReminderEntity::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class LiteListDatabase : RoomDatabase() {
@@ -43,6 +43,21 @@ abstract class LiteListDatabase : RoomDatabase() {
                 )""")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_repeat_instance_generationId_templateId_originalDate` ON `repeat_instance` (`generationId`, `templateId`, `originalDate`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_repeat_instance_generationId_taskId` ON `repeat_instance` (`generationId`, `taskId`)")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE task ADD COLUMN deadlineReminderDisabled INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `normal_reminder` (
+                    `generationId` TEXT NOT NULL, `reminderId` TEXT NOT NULL,
+                    `taskId` TEXT NOT NULL, `localDateTime` TEXT NOT NULL,
+                    `logicalStatus` TEXT NOT NULL, `scheduleVersion` INTEGER NOT NULL,
+                    `syncStatus` TEXT NOT NULL, `scheduleKind` TEXT NOT NULL,
+                    PRIMARY KEY(`generationId`, `reminderId`),
+                    FOREIGN KEY(`generationId`, `taskId`) REFERENCES `task`(`generationId`, `taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                )""")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_normal_reminder_generationId_taskId_localDateTime` ON `normal_reminder` (`generationId`, `taskId`, `localDateTime`)")
             }
         }
     }

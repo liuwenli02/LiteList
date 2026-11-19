@@ -45,5 +45,6 @@ data class TaskEntity(
     val dataVersion: Long = 1,
     val postponeCount: Int = 0,
     val reminderMode: String = "ENABLED",
+    @ColumnInfo(defaultValue = "0") val deadlineReminderDisabled: Boolean = false,
 )
 
