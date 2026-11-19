@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DatasetGeneration::class, DatasetPointer::class, TaskEntity::class, RepeatTemplateEntity::class, RepeatInstanceEntity::class, NormalReminderEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class LiteListDatabase : RoomDatabase() {
@@ -58,6 +58,14 @@ abstract class LiteListDatabase : RoomDatabase() {
                     FOREIGN KEY(`generationId`, `taskId`) REFERENCES `task`(`generationId`, `taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT
                 )""")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_normal_reminder_generationId_taskId_localDateTime` ON `normal_reminder` (`generationId`, `taskId`, `localDateTime`)")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE task ADD COLUMN deadlineScheduleVersion INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE task ADD COLUMN deadlineSyncStatus TEXT NOT NULL DEFAULT 'SYNC_REQUIRED'")
+                db.execSQL("ALTER TABLE task ADD COLUMN deadlineScheduleKind TEXT NOT NULL DEFAULT 'NOT_SCHEDULED'")
             }
         }
     }

@@ -46,5 +46,8 @@ data class TaskEntity(
     val postponeCount: Int = 0,
     val reminderMode: String = "ENABLED",
     @ColumnInfo(defaultValue = "0") val deadlineReminderDisabled: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val deadlineScheduleVersion: Long = 1,
+    @ColumnInfo(defaultValue = "'SYNC_REQUIRED'") val deadlineSyncStatus: String = "SYNC_REQUIRED",
+    @ColumnInfo(defaultValue = "'NOT_SCHEDULED'") val deadlineScheduleKind: String = "NOT_SCHEDULED",
 )
 

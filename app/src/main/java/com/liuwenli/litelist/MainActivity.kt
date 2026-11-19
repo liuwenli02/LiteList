@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
     private val repository by lazy {
         TaskRepository(
             Room.databaseBuilder(applicationContext, LiteListDatabase::class.java, "litelist.db")
-                .addMigrations(LiteListDatabase.MIGRATION_1_2, LiteListDatabase.MIGRATION_2_3, LiteListDatabase.MIGRATION_3_4)
+                .addMigrations(LiteListDatabase.MIGRATION_1_2, LiteListDatabase.MIGRATION_2_3, LiteListDatabase.MIGRATION_3_4, LiteListDatabase.MIGRATION_4_5)
                 .build(),
             Clock.systemDefaultZone(),
         )

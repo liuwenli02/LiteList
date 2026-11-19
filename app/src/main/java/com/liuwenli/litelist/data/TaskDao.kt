@@ -32,11 +32,20 @@ interface TaskDao {
     @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND taskId = :taskId")
     suspend fun allNormalReminders(generationId: String, taskId: String): List<NormalReminderEntity>
 
-    @Query("UPDATE normal_reminder SET logicalStatus = 'ENABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'DISABLED'")
+    @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND logicalStatus = 'ENABLED'")
+    suspend fun allEnabledNormalReminders(generationId: String): List<NormalReminderEntity>
+
+    @Query("SELECT task.* FROM task LEFT JOIN repeat_instance ON task.generationId = repeat_instance.generationId AND task.taskId = repeat_instance.taskId WHERE task.generationId = :generationId AND task.status = 'PENDING' AND (repeat_instance.instanceId IS NULL OR repeat_instance.lifecycleStatus = 'ACTIVE')")
+    suspend fun pendingActiveTasks(generationId: String): List<TaskEntity>
+
+    @Query("UPDATE normal_reminder SET logicalStatus = 'ENABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'DISABLED'")
     suspend fun enableNormalReminder(generationId: String, reminderId: String): Int
 
-    @Query("UPDATE normal_reminder SET logicalStatus = 'DISABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'ENABLED'")
+    @Query("UPDATE normal_reminder SET logicalStatus = 'DISABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'ENABLED'")
     suspend fun disableNormalReminder(generationId: String, reminderId: String): Int
+
+    @Query("UPDATE normal_reminder SET scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND logicalStatus = 'ENABLED'")
+    suspend fun invalidateNormalSchedules(generationId: String, taskId: String): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertTemplate(template: RepeatTemplateEntity)
@@ -104,13 +113,13 @@ interface TaskDao {
     @Query("SELECT task.* FROM task LEFT JOIN repeat_instance ON task.generationId = repeat_instance.generationId AND task.taskId = repeat_instance.taskId WHERE task.generationId = :generationId AND task.status != 'DELETED' AND (repeat_instance.instanceId IS NULL OR repeat_instance.lifecycleStatus = 'ACTIVE') ORDER BY task.plannedDate, task.createdAt, task.taskId")
     fun observeActiveTasks(generationId: String): Flow<List<TaskEntity>>
 
-    @Query("UPDATE task SET status = :status, completedAt = :completedAt, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status = :expectedStatus")
+    @Query("UPDATE task SET status = :status, completedAt = :completedAt, dataVersion = dataVersion + 1, deadlineScheduleVersion = deadlineScheduleVersion + 1, deadlineSyncStatus = 'SYNC_REQUIRED', deadlineScheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status = :expectedStatus")
     suspend fun transitionTask(generationId: String, taskId: String, expectedVersion: Long, expectedStatus: String, status: String, completedAt: String?): Int
 
-    @Query("UPDATE task SET reminderMode = :mode, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
+    @Query("UPDATE task SET reminderMode = :mode, dataVersion = dataVersion + 1, deadlineScheduleVersion = deadlineScheduleVersion + 1, deadlineSyncStatus = 'SYNC_REQUIRED', deadlineScheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
     suspend fun setReminderMode(generationId: String, taskId: String, expectedVersion: Long, mode: String): Int
 
-    @Query("UPDATE task SET title = :title, note = :note, plannedDate = :plannedDate, deadlineLocalDateTime = :deadline, deadlineReminderDisabled = :deadlineReminderDisabled, dataVersion = dataVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
+    @Query("UPDATE task SET title = :title, note = :note, plannedDate = :plannedDate, deadlineLocalDateTime = :deadline, deadlineReminderDisabled = :deadlineReminderDisabled, dataVersion = dataVersion + 1, deadlineScheduleVersion = deadlineScheduleVersion + 1, deadlineSyncStatus = 'SYNC_REQUIRED', deadlineScheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND dataVersion = :expectedVersion AND status != 'DELETED'")
     suspend fun editTask(generationId: String, taskId: String, expectedVersion: Long, title: String, note: String?, plannedDate: String, deadline: String?, deadlineReminderDisabled: Boolean): Int
 
     @Query("UPDATE repeat_instance SET isCustomized = 1, lifecycleVersion = lifecycleVersion + 1 WHERE generationId = :generationId AND taskId = :taskId AND lifecycleStatus = 'ACTIVE' AND lifecycleVersion = :expectedVersion")
