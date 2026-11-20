@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import com.liuwenli.litelist.domain.AlarmScheduleKind
 import com.liuwenli.litelist.domain.AlarmSchedulePolicy
 import com.liuwenli.litelist.domain.ReminderScheduleCandidate
@@ -18,9 +19,10 @@ class AndroidAlarmScheduler(private val context: Context) {
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
 
     fun permissionKind(): AlarmScheduleKind = AlarmSchedulePolicy.choose(
-        canPostNotifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ContextCompat.checkSelfPermission(
+        canPostNotifications = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ContextCompat.checkSelfPermission(
             context, Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED,
+        ) == PackageManager.PERMISSION_GRANTED),
         canScheduleExact = alarmManager.canScheduleExactAlarms(),
     )
 

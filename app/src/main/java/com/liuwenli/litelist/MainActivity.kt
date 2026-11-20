@@ -1,7 +1,11 @@
 package com.liuwenli.litelist
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,11 +40,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.room.Room
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.liuwenli.litelist.data.LiteListDatabase
 import com.liuwenli.litelist.data.TaskEntity
 import com.liuwenli.litelist.data.RepeatTemplateEntity
 import com.liuwenli.litelist.data.TaskRepository
+import com.liuwenli.litelist.data.ReminderRepository
+import com.liuwenli.litelist.reminder.ReminderCoordinator
 import com.liuwenli.litelist.ui.TaskEditorDialog
 import com.liuwenli.litelist.ui.CalendarScreen
 import com.liuwenli.litelist.ui.MyScreen
@@ -54,15 +61,17 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 class MainActivity : ComponentActivity() {
+    private val database by lazy { LiteListDatabase.open(applicationContext) }
     private val repository by lazy {
-        TaskRepository(
-            Room.databaseBuilder(applicationContext, LiteListDatabase::class.java, "litelist.db")
-                .addMigrations(LiteListDatabase.MIGRATION_1_2, LiteListDatabase.MIGRATION_2_3, LiteListDatabase.MIGRATION_3_4, LiteListDatabase.MIGRATION_4_5)
-                .build(),
-            Clock.systemDefaultZone(),
-        )
+        TaskRepository(database, Clock.systemDefaultZone())
+    }
+    private val reminderRepository by lazy { ReminderRepository(database, Clock.systemDefaultZone()) }
+    private val reminderCoordinator by lazy { ReminderCoordinator(applicationContext, reminderRepository, repository) }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        lifecycleScope.launch { runCatching { reminderCoordinator.reconcile() } }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,7 +87,33 @@ class MainActivity : ComponentActivity() {
                 LiteListApp(repository, themeMode)
             }
         }
+        lifecycleScope.launch {
+            reminderRepository.observeRevision().collect {
+                val hasFutureReminders = repository.futureReminderCandidates(ZoneId.systemDefault()).isNotEmpty()
+                if (hasFutureReminders && shouldAskNotificationPermission()) {
+                    getSharedPreferences("reminder_permissions", MODE_PRIVATE).edit().putBoolean("notification_asked", true).apply()
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    runCatching { reminderCoordinator.reconcile() }
+                }
+            }
+        }
     }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch { runCatching { reminderCoordinator.reconcile() } }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        database.close()
+    }
+
+    private fun shouldAskNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !getSharedPreferences("reminder_permissions", MODE_PRIVATE).getBoolean("notification_asked", false)
 }
 
 @Composable

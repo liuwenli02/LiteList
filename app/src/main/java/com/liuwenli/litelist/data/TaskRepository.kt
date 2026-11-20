@@ -32,7 +32,7 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             ReminderTaskInput(
                 task.generationId, task.taskId, task.status, task.reminderMode,
                 task.deadlineLocalDateTime?.let(LocalDateTime::parse),
-                task.deadlineReminderDisabled, task.deadlineScheduleVersion,
+                task.deadlineReminderDisabled, task.deadlineScheduleVersion, task.deadlineTriggeredVersion,
             )
         }
         val normal = dao.allEnabledNormalReminders(generationId).map { reminder ->
@@ -304,7 +304,7 @@ class TaskRepository(private val database: LiteListDatabase, private val clock: 
             for (reminder in configured) {
                 val selected = LocalDateTime.parse(reminder.localDateTime) in normalTimes
                 if (selected && reminder.logicalStatus == "DISABLED") check(dao.enableNormalReminder(generationId, reminder.reminderId) == 1)
-                if (!selected && reminder.logicalStatus == "ENABLED") check(dao.disableNormalReminder(generationId, reminder.reminderId) == 1)
+                if (!selected && reminder.logicalStatus != "DISABLED") check(dao.disableNormalReminder(generationId, reminder.reminderId) == 1)
             }
             val knownTimes = configured.map { LocalDateTime.parse(it.localDateTime) }.toSet()
             normalTimes.filterNot { it in knownTimes }.forEach { insertNormalReminder(task, it) }

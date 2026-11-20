@@ -49,5 +49,6 @@ data class TaskEntity(
     @ColumnInfo(defaultValue = "1") val deadlineScheduleVersion: Long = 1,
     @ColumnInfo(defaultValue = "'SYNC_REQUIRED'") val deadlineSyncStatus: String = "SYNC_REQUIRED",
     @ColumnInfo(defaultValue = "'NOT_SCHEDULED'") val deadlineScheduleKind: String = "NOT_SCHEDULED",
+    @ColumnInfo(defaultValue = "0") val deadlineTriggeredVersion: Long = 0,
 )
 

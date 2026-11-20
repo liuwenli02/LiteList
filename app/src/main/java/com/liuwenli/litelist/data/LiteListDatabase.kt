@@ -1,19 +1,26 @@
 package com.liuwenli.litelist.data
 
+import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DatasetGeneration::class, DatasetPointer::class, TaskEntity::class, RepeatTemplateEntity::class, RepeatInstanceEntity::class, NormalReminderEntity::class],
-    version = 5,
+    entities = [DatasetGeneration::class, DatasetPointer::class, TaskEntity::class, RepeatTemplateEntity::class, RepeatInstanceEntity::class, NormalReminderEntity::class, ReminderEventEntity::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class LiteListDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
     companion object {
+        fun open(context: Context): LiteListDatabase =
+            Room.databaseBuilder(context.applicationContext, LiteListDatabase::class.java, "litelist.db")
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .build()
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE dataset_pointer ADD COLUMN themeMode TEXT NOT NULL DEFAULT 'SYSTEM'")
@@ -66,6 +73,20 @@ abstract class LiteListDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE task ADD COLUMN deadlineScheduleVersion INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE task ADD COLUMN deadlineSyncStatus TEXT NOT NULL DEFAULT 'SYNC_REQUIRED'")
                 db.execSQL("ALTER TABLE task ADD COLUMN deadlineScheduleKind TEXT NOT NULL DEFAULT 'NOT_SCHEDULED'")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE task ADD COLUMN deadlineTriggeredVersion INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `reminder_event` (
+                    `generationId` TEXT NOT NULL, `eventKey` TEXT NOT NULL,
+                    `taskId` TEXT NOT NULL, `scheduledAtEpochMillis` INTEGER NOT NULL,
+                    `status` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `claimedAtEpochMillis` INTEGER,
+                    PRIMARY KEY(`generationId`, `eventKey`),
+                    FOREIGN KEY(`generationId`, `taskId`) REFERENCES `task`(`generationId`, `taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                )""")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_reminder_event_generationId_taskId` ON `reminder_event` (`generationId`, `taskId`)")
             }
         }
     }

@@ -12,6 +12,7 @@ data class ReminderTaskInput(
     val deadline: LocalDateTime?,
     val deadlineDisabled: Boolean,
     val deadlineScheduleVersion: Long,
+    val deadlineTriggeredVersion: Long = 0,
 )
 
 data class NormalReminderInput(
@@ -42,7 +43,8 @@ object ReminderScheduleRules {
             .associateBy { it.generationId to it.taskId }
         val result = mutableListOf<ReminderScheduleCandidate>()
         for (task in eligible.values) {
-            if (ReminderRules.deadlineEnabled(task.deadline, task.deadlineDisabled)) {
+            if (ReminderRules.deadlineEnabled(task.deadline, task.deadlineDisabled) &&
+                task.deadlineTriggeredVersion != task.deadlineScheduleVersion) {
                 val at = TaskRules.resolve(task.deadline!!, zone)
                 if (at.isAfter(now)) result += ReminderScheduleCandidate(
                     task.generationId, task.taskId, null, "DEADLINE", at, task.deadlineScheduleVersion,

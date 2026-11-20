@@ -26,11 +26,23 @@ interface TaskDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertNormalReminder(reminder: NormalReminderEntity)
 
-    @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND taskId = :taskId AND logicalStatus = 'ENABLED' ORDER BY localDateTime")
+    @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND taskId = :taskId AND logicalStatus != 'DISABLED' ORDER BY localDateTime")
     suspend fun normalReminders(generationId: String, taskId: String): List<NormalReminderEntity>
 
     @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND taskId = :taskId")
     suspend fun allNormalReminders(generationId: String, taskId: String): List<NormalReminderEntity>
+
+    @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND reminderId = :reminderId")
+    suspend fun findNormalReminder(generationId: String, reminderId: String): NormalReminderEntity?
+
+    @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId")
+    suspend fun allGenerationNormalReminders(generationId: String): List<NormalReminderEntity>
+
+    @Query("UPDATE normal_reminder SET logicalStatus = 'TRIGGERED', syncStatus = 'SYNCED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND scheduleVersion = :version AND logicalStatus = 'ENABLED'")
+    suspend fun markNormalTriggered(generationId: String, reminderId: String, version: Long): Int
+
+    @Query("UPDATE normal_reminder SET syncStatus = :status, scheduleKind = :kind WHERE generationId = :generationId AND reminderId = :reminderId AND scheduleVersion = :version AND logicalStatus = 'ENABLED'")
+    suspend fun markNormalScheduleResult(generationId: String, reminderId: String, version: Long, status: String, kind: String): Int
 
     @Query("SELECT * FROM normal_reminder WHERE generationId = :generationId AND logicalStatus = 'ENABLED'")
     suspend fun allEnabledNormalReminders(generationId: String): List<NormalReminderEntity>
@@ -38,10 +50,34 @@ interface TaskDao {
     @Query("SELECT task.* FROM task LEFT JOIN repeat_instance ON task.generationId = repeat_instance.generationId AND task.taskId = repeat_instance.taskId WHERE task.generationId = :generationId AND task.status = 'PENDING' AND (repeat_instance.instanceId IS NULL OR repeat_instance.lifecycleStatus = 'ACTIVE')")
     suspend fun pendingActiveTasks(generationId: String): List<TaskEntity>
 
+    @Query("SELECT * FROM task WHERE generationId = :generationId")
+    suspend fun allGenerationTasks(generationId: String): List<TaskEntity>
+
+    @Query("UPDATE task SET deadlineTriggeredVersion = :version, deadlineSyncStatus = 'SYNCED', deadlineScheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND deadlineScheduleVersion = :version AND deadlineTriggeredVersion != :version AND status = 'PENDING' AND reminderMode = 'ENABLED' AND deadlineLocalDateTime IS NOT NULL AND deadlineReminderDisabled = 0")
+    suspend fun markDeadlineTriggered(generationId: String, taskId: String, version: Long): Int
+
+    @Query("UPDATE task SET deadlineSyncStatus = :status, deadlineScheduleKind = :kind WHERE generationId = :generationId AND taskId = :taskId AND deadlineScheduleVersion = :version AND deadlineTriggeredVersion != :version")
+    suspend fun markDeadlineScheduleResult(generationId: String, taskId: String, version: Long, status: String, kind: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertReminderEvent(event: ReminderEventEntity): Long
+
+    @Query("SELECT * FROM reminder_event WHERE generationId = :generationId AND eventKey = :eventKey")
+    suspend fun findReminderEvent(generationId: String, eventKey: String): ReminderEventEntity?
+
+    @Query("UPDATE reminder_event SET attempts = attempts + 1, claimedAtEpochMillis = :claimedAt WHERE generationId = :generationId AND eventKey = :eventKey AND status = 'PENDING' AND attempts < 2 AND (claimedAtEpochMillis IS NULL OR claimedAtEpochMillis <= :staleBefore)")
+    suspend fun claimReminderEvent(generationId: String, eventKey: String, claimedAt: Long, staleBefore: Long): Int
+
+    @Query("UPDATE reminder_event SET status = 'PUBLISHED', claimedAtEpochMillis = NULL WHERE generationId = :generationId AND eventKey = :eventKey AND status = 'PENDING' AND claimedAtEpochMillis = :claimedAt")
+    suspend fun publishReminderEvent(generationId: String, eventKey: String, claimedAt: Long): Int
+
+    @Query("UPDATE reminder_event SET claimedAtEpochMillis = NULL WHERE generationId = :generationId AND eventKey = :eventKey AND status = 'PENDING' AND claimedAtEpochMillis = :claimedAt")
+    suspend fun releaseReminderEvent(generationId: String, eventKey: String, claimedAt: Long): Int
+
     @Query("UPDATE normal_reminder SET logicalStatus = 'ENABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'DISABLED'")
     suspend fun enableNormalReminder(generationId: String, reminderId: String): Int
 
-    @Query("UPDATE normal_reminder SET logicalStatus = 'DISABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus = 'ENABLED'")
+    @Query("UPDATE normal_reminder SET logicalStatus = 'DISABLED', scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND reminderId = :reminderId AND logicalStatus IN ('ENABLED', 'TRIGGERED')")
     suspend fun disableNormalReminder(generationId: String, reminderId: String): Int
 
     @Query("UPDATE normal_reminder SET scheduleVersion = scheduleVersion + 1, syncStatus = 'SYNC_REQUIRED', scheduleKind = 'NOT_SCHEDULED' WHERE generationId = :generationId AND taskId = :taskId AND logicalStatus = 'ENABLED'")
